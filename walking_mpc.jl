@@ -37,9 +37,9 @@ begin
 
 	path_cost_slider = @bind path_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
 	θ_cost_slider = @bind θ_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
-	f_cost_slider = @bind f_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
-	s_cost_slider = @bind s_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
-	α_cost_slider = @bind α_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	f_cost_slider = @bind f_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
+	s_cost_slider = @bind s_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
+	α_cost_slider = @bind α_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
 	nothing
 end
 
@@ -50,9 +50,9 @@ begin
 	t_max = 1
 	t = LinRange(0, t_max, 20)
 	x_target1 = hcat(t, zero(t))
-	x_target2 = hcat(sin.(t * 2) ./ 2 .+ x_target1[end,1], -cos.(t * 2) ./ 2 .+ 0.5 .+ x_target1[end,2])
+	x_target2 = hcat(sin.(t * 2) ./ 2 .+ x_target1[end,1] .+ 0.05, -cos.(t * 2) ./ 2 .+ 0.5 .+ x_target1[end,2])
 	x_target = vcat(x_target1, x_target2)
-	θ_target = -pi
+	θ_target = -pi + 2 * pi
 
 	θ₀ = 0
 	x₀ = [x_target[1,1], x_target[1,2], θ₀]
@@ -165,9 +165,9 @@ end
 # ╔═╡ 72a92d91-d3f9-4043-b65e-15de03c2ddf3
 begin
 	x_trajectory = value.(x)
-	scatter(x_trajectory[:,1], x_trajectory[:,2], label = "trajectory", aspect_ratio=:equal)
-	quiver!(x_trajectory[:,1], x_trajectory[:,2], quiver=(0.02 * cos.(x_trajectory[:,3]), 0.02*sin.(x_trajectory[:,3])))
-	plot!(x_target[:,1], x_target[:,2], label = "target")
+	scatter(x_trajectory[:,1], x_trajectory[:,2], c=:white, msc=:black, label = "trajectory", aspect_ratio=:equal)
+	quiver!(x_trajectory[:,1], x_trajectory[:,2], quiver=(0.03 * cos.(x_trajectory[:,3]), 0.03 * sin.(x_trajectory[:,3])), c=:black)
+	plot!(x_target[:,1], x_target[:,2], label = "path")
 	scatter!(x_target[:,1], x_target[:,2], label = "target", mc=:red, ms=2, ma=0.5)
 end
 
