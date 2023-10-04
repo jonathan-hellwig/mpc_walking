@@ -167,7 +167,8 @@ begin
 	x_trajectory = value.(x)
 	scatter(x_trajectory[:,1], x_trajectory[:,2], label = "trajectory", aspect_ratio=:equal)
 	quiver!(x_trajectory[:,1], x_trajectory[:,2], quiver=(0.02 * cos.(x_trajectory[:,3]), 0.02*sin.(x_trajectory[:,3])))
-	scatter!(x_target[:,1], x_target[:,2], label = "target")
+	plot!(x_target[:,1], x_target[:,2], label = "target")
+	scatter!(x_target[:,1], x_target[:,2], label = "target", mc=:red, ms=2, ma=0.5)
 end
 
 # ╔═╡ 20d9bee9-b6bb-48b4-bc60-7899bff66d9d
@@ -1435,7 +1436,7 @@ version = "1.4.1+1"
 # ╠═dbbb858c-11bc-45e6-863f-8e298ee572a7
 # ╠═7349357c-45c2-46fc-a726-f4ec6fbb75cc
 # ╠═55e1b9ed-1040-46cc-9fd8-7525ecffaeff
-# ╠═c4c586f7-292c-4f1b-89e4-a6b96210f6e2
+# ╟─c4c586f7-292c-4f1b-89e4-a6b96210f6e2
 # ╠═72a92d91-d3f9-4043-b65e-15de03c2ddf3
 # ╠═20d9bee9-b6bb-48b4-bc60-7899bff66d9d
 # ╠═ecfeb468-16ae-4ca1-8f7a-63933a7e83f1
