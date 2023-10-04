@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.27
+# v0.19.29
 
 using Markdown
 using InteractiveUtils
@@ -22,83 +22,112 @@ begin
 	using PlutoUI
 end
 
-# ╔═╡ 8aeb93f4-de46-42f5-ac5d-7d05e52707c2
-@bind alpha_loss_weight Slider(0.0:0.5:10, default=1.0, show_value=true)
+# ╔═╡ dbbb858c-11bc-45e6-863f-8e298ee572a7
+begin
+	f_slider = @bind f_range RangeSlider(-0.1:0.005:0.1, left=-0.02, right=0.06)
+	s_slider = @bind s_range RangeSlider(-0.2:0.005:0.2, left=0.0, right=0.1)
+	α_slider = @bind α_range RangeSlider(-1.5:0.05:1.5, left=-0.1, right=0.9)
 
-# ╔═╡ f5ec1d6d-32fe-411f-8e94-a6a1223aa512
-@bind t_max Slider(1.0:0.5:10, default=1.0, show_value=true)
+	ḟ_slider = @bind ḟ_range RangeSlider(-1.0:0.005:1.0, left=-1.0, right=1.0)
+	ṡ_slider = @bind ṡ_range RangeSlider(-1.0:0.005:1.0, left=-1.0, right=1.0)
 
-# ╔═╡ 26ab0f24-2ec1-4ada-b690-2a609ca54433
-@bind path_loss_weight Slider(0.0:0.1:100, default=1.0, show_value=true)
+	f_volume_slider = @bind f_volume Slider(0.0:0.1:1000, default=0.0, show_value=true)
+	s_volume_slider = @bind s_volume Slider(0.0:0.1:1000, default=0.0, show_value=true)
+	α_volume_slider = @bind α_volume Slider(0.0:0.1:1000, default=0.0, show_value=true)
 
-# ╔═╡ e75a689a-a543-49e1-b770-dc4670d41ba4
-@bind f_max Slider(0.0:0.005:0.2, default=0.05, show_value=true)
-
-# ╔═╡ 848d780d-dc00-4d95-8919-088a717fafbd
-@bind alpha_max Slider(0.0:pi/64:pi, default=pi/4, show_value=true)
+	path_cost_slider = @bind path_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	θ_cost_slider = @bind θ_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	f_cost_slider = @bind f_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	s_cost_slider = @bind s_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	α_cost_slider = @bind α_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	nothing
+end
 
 # ╔═╡ 7349357c-45c2-46fc-a726-f4ec6fbb75cc
 begin
-	x0 = [1.0, 0.0, pi/2]
-	N = 31
-	
-	t = LinRange(0, t_max, 16)
-	x_target1 = hcat(cos.(t), sin.(t))
-	x_target2 = hcat(x_target1[end,1] .+ t, x_target1[end,2] .+ t)
+	N = 39
+
+	t_max = 1
+	t = LinRange(0, t_max, 20)
+	x_target1 = hcat(t, zero(t))
+	x_target2 = hcat(sin.(t * 2) ./ 2 .+ x_target1[end,1], -cos.(t * 2) ./ 2 .+ 0.5 .+ x_target1[end,2])
 	x_target = vcat(x_target1, x_target2)
+	θ_target = -pi
+
+	θ₀ = 0
+	x₀ = [x_target[1,1], x_target[1,2], θ₀]
 	
-	theta_end_target = pi/2
-	
-	f_min = -0.02
-	# f_max = 0.5
+	f_min = f_range[1]
+	f_max = f_range[end]
+	s_min = s_range[1]
+	s_max = s_range[end]
+	α_min = α_range[1]
+	α_max = α_range[end]
 
-	s_min = 0.0
-	s_max = 0.1
-
-	alpha_min = 0.0
-	# alpha_max = 0.9
-
-	f_weight = 0.0
-	s_weight = 0.0
-	alpha_weight = 0.0
-
-	f_acc_min = -1.0
-	f_acc_max = 1.0
-	s_acc_min = -1.0
-	s_acc_max = 1.0
-
-	# path_loss_weight = 1.0
-	f_loss_weight = 1.0
-	s_loss_weight = 1.0
-	# alpha_loss_weight = 1.0
-	theta_loss_weight = 1.0
+	ḟ_min = ḟ_range[1]
+	ḟ_max = ḟ_range[end]
+	ṡ_min = ṡ_range[1]
+	ṡ_max = ṡ_range[end]
 	
 	model = Model(Ipopt.Optimizer)
 	set_silent(model)
-	initial_guess = x_target[2:end,:] - x_target[1:end-1,:]
-	@variable(model, f_min <= f[i=1:N] <= f_max, start=initial_guess[i,1])
+	initial_guess = zero(x_target[2:end,:] - x_target[1:end-1,:])
+
+	# variables
+	@variable(model, f[i=1:N], start=initial_guess[i,1])
 	@variable(model, s[i=1:N], start=initial_guess[i,2])
-	@variable(model, alpha[1:N])
+	@variable(model, α[1:N])
 	@variable(model, x[1:N+1,1:3])
-	for i in 1:3
-	    fix(x[1,i], x0[i])
-	end
-	@NLconstraint(model, [i=1:N], x[i+1,1] == x[i,1] + f[i]*cos(x[i,3]) - s[i] * 
-	sin(x[i,3]))
-	@NLconstraint(model, [i=1:N], x[i+1,2] == x[i,2] + f[i]*sin(x[i,3]) + s[i]*cos(x[i,3]))
-	@constraint(model, [i=1:N], x[i+1,3] == x[i,3] + alpha[i])
 	
+	# x₀
+	fix(x[1,1], x₀[1])
+	fix(x[1,2], x₀[2])
+	fix(x[1,3], x₀[3])
+
+	# dynamic constraints
+	@NLconstraint(
+		model, 
+		[i=1:N],
+		x[i+1,1] == x[i,1] + f[i] * cos(x[i,3]) - s[i] * sin(x[i,3])
+	)
+	@NLconstraint(
+		model,
+		[i=1:N],
+		x[i+1,2] == x[i,2] + f[i] * sin(x[i,3]) + s[i] * cos(x[i,3])
+	)
+	@constraint(model, [i=1:N], x[i+1,3] == x[i,3] + α[i])
+
+	# input constraints
 	@constraint(model, [i=1:N], f_min <= f[i] <= f_max)
 	@constraint(model, [i=1:2:N], s_min <= s[i] <= s_max)
 	@constraint(model, [i=2:2:N], -s_max <= s[i] <= -s_min)
-	@constraint(model, [i=1:2:N], alpha_min <= alpha[i] <= alpha_max)
-	@constraint(model, [i=2:2:N], -alpha_max <= alpha[i] <= -alpha_min)
+	@constraint(model, [i=1:2:N], α_min <= α[i] <= α_max)
+	@constraint(model, [i=2:2:N], -α_max <= α[i] <= -α_min)
 
-	@constraint(model, [i=1:N], f_weight * f[i] + s_weight * s[i] + alpha_weight * alpha[i] <= 1)
-	@constraint(model, [i=1:(N-1)], f_acc_min <= f[i+1] - f[i] <= f_acc_max)
-	@constraint(model, [i=1:(N-1)], s_acc_min <= s[i+1] - s[i] <= s_acc_max)
-	
-	@NLobjective(model, Min, sum(path_loss_weight * (x[i,1] - x_target[i,1])^2 + path_loss_weight * (x[i,2] - x_target[i,2])^2 for i in 1:N+1) + sum(f_loss_weight * f[i]^2 + s_loss_weight * s[i]^2 + alpha_loss_weight * alpha[i]^2 for i in 1:N) + theta_loss_weight * (x[end,3] - theta_end_target)^2)
+	# walk volume
+	@constraint(
+		model,
+		[i=1:N],
+		f_volume * f[i]^2 + s_volume * s[i]^2 + α_volume * α[i]^2 <= 1
+	)
+
+	# acceleration
+	@constraint(model, [i=1:(N-1)], ḟ_min <= f[i+1] - f[i] <= ḟ_max)
+	@constraint(model, [i=1:(N-1)], ṡ_min <= s[i+1] - s[i] <= ṡ_max)
+
+	# objective
+	@NLobjective(
+		model,
+		Min, 
+		path_cost * sum(
+				(x[i,1] - x_target[i,1])^2 + (x[i,2] - x_target[i,2])^2 
+				for i in 1:N+1
+			)
+		+ sum(
+			f_cost * f[i]^2 + s_cost * s[i]^2 + α_cost * α[i]^2
+			for i in 1:N
+		) 
+		+ θ_cost * (x[end,3] - θ_target)^2)
 end
 
 # ╔═╡ 55e1b9ed-1040-46cc-9fd8-7525ecffaeff
@@ -107,11 +136,31 @@ begin
 	solution_summary(model)
 end
 
-# ╔═╡ ecfeb468-16ae-4ca1-8f7a-63933a7e83f1
-value.(f)
+# ╔═╡ c4c586f7-292c-4f1b-89e4-a6b96210f6e2
+begin
+	md"""
+	#### Control Input Ranges
+	f: $f_slider $br
+	s: $s_slider $br
+	α: $α_slider $br
 
-# ╔═╡ 9efebb7b-3c9c-4e1e-9225-ac9d60cee6c2
-value.(s)
+	#### Dynamic Constraints
+	f\_acc: $ḟ_slider $br
+	s\_acc: $ṡ_slider $br
+
+	#### Walk Volume Function
+	f: $f_volume_slider $br
+	s: $s_volume_slider $br
+	α: $α_volume_slider $br
+
+	#### Cost
+	path: $path_cost_slider $br
+	θ: $θ_cost_slider $br
+	f: $f_cost_slider $br
+	s: $s_cost_slider $br
+	α: $α_cost_slider $br
+	"""
+end
 
 # ╔═╡ 72a92d91-d3f9-4043-b65e-15de03c2ddf3
 begin
@@ -123,6 +172,18 @@ end
 
 # ╔═╡ 20d9bee9-b6bb-48b4-bc60-7899bff66d9d
 value.(x_trajectory)
+
+# ╔═╡ ecfeb468-16ae-4ca1-8f7a-63933a7e83f1
+value.(f)
+
+# ╔═╡ 9efebb7b-3c9c-4e1e-9225-ac9d60cee6c2
+value.(s)
+
+# ╔═╡ b7c5f531-e28f-4b41-9eba-4240025c30b7
+value.(α)
+
+# ╔═╡ c3fe3e0a-2adb-410b-a59a-682c0c2190d2
+x_target
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1371,16 +1432,15 @@ version = "1.4.1+1"
 
 # ╔═╡ Cell order:
 # ╠═ca8afe74-589e-11ee-1041-bb2fd694fe5f
+# ╠═dbbb858c-11bc-45e6-863f-8e298ee572a7
 # ╠═7349357c-45c2-46fc-a726-f4ec6fbb75cc
 # ╠═55e1b9ed-1040-46cc-9fd8-7525ecffaeff
+# ╠═c4c586f7-292c-4f1b-89e4-a6b96210f6e2
+# ╠═72a92d91-d3f9-4043-b65e-15de03c2ddf3
 # ╠═20d9bee9-b6bb-48b4-bc60-7899bff66d9d
 # ╠═ecfeb468-16ae-4ca1-8f7a-63933a7e83f1
 # ╠═9efebb7b-3c9c-4e1e-9225-ac9d60cee6c2
-# ╠═8aeb93f4-de46-42f5-ac5d-7d05e52707c2
-# ╠═f5ec1d6d-32fe-411f-8e94-a6a1223aa512
-# ╠═26ab0f24-2ec1-4ada-b690-2a609ca54433
-# ╠═e75a689a-a543-49e1-b770-dc4670d41ba4
-# ╠═848d780d-dc00-4d95-8919-088a717fafbd
-# ╠═72a92d91-d3f9-4043-b65e-15de03c2ddf3
+# ╠═b7c5f531-e28f-4b41-9eba-4240025c30b7
+# ╠═c3fe3e0a-2adb-410b-a59a-682c0c2190d2
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
