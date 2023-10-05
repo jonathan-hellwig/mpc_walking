@@ -19,71 +19,29 @@ begin
 	using JuMP
 	import Ipopt
 	using Plots
+	# using WGLMakie
 	using PlutoUI
-	#import PlotlyJS
 	using LinearAlgebra
+	import JSON
 end
+
+# ╔═╡ 34fbabb5-3947-46b0-b4f5-5e9a853758dc
+md"""
+# Walking MPC
+## Imports
+"""
 
 # ╔═╡ 64153989-b00a-4f15-8f02-281d03174db1
 html"""<style>
 main {
-    max-width: 1000px;
+    max-width: 2000px;
 }
 """
 
-# ╔═╡ 03ffbcd1-dcb6-408a-aee8-c32e18e6384c
-begin
-	#plotlyjs()
-end
-
-# ╔═╡ dbbb858c-11bc-45e6-863f-8e298ee572a7
-begin
-	plan_step_slider = @bind plan_step_size Slider(0.0:0.005:0.1, default=0.07, show_value=true)
-	N_slider = @bind N_max Slider(2:99, default=99, show_value=true)
-	
-	f_slider = @bind f_range RangeSlider(-0.1:0.005:0.1, left=-0.02, right=0.06)
-	s_slider = @bind s_range RangeSlider(-0.2:0.005:0.2, left=-0.01, right=0.1)
-	α_slider = @bind α_range RangeSlider(-1.5:0.05:1.5, left=-0.1, right=0.9)
-
-	ḟ_slider = @bind ḟ_range RangeSlider(-1.0:0.005:1.0, left=-0.01, right=0.01)
-	ṡ_slider = @bind ṡ_range RangeSlider(-1.0:0.005:1.0, left=-0.05, right=0.05)
-
-	f_volume_slider = @bind f_volume Slider(0.0:0.1:10, default=1.0, show_value=true)
-	s_volume_slider = @bind s_volume Slider(0.0:0.1:10, default=1.0, show_value=true)
-	α_volume_slider = @bind α_volume Slider(0.0:0.1:10, default=1.0, show_value=true)
-
-	path_cost_slider = @bind path_cost Slider(0.0:0.1:10, default=0.1, show_value=true)
-	x_end_cost_slider = @bind x_end_cost Slider(0.0:0.1:10, default=5.0, show_value=true)
-	θ_end_cost_slider = @bind θ_end_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
-	f_end_cost_slider = @bind f_end_cost Slider(0.0:0.1:10, default=0.0, show_value=true)
-	s_end_cost_slider = @bind s_end_cost Slider(0.0:0.1:10, default=0.0, show_value=true)
-	α_end_cost_slider= @bind α_end_cost Slider(0.0:0.1:10, default=0.0, show_value=true)
-	f_cost_slider = @bind f_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
-	s_cost_slider = @bind s_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
-	α_cost_slider = @bind α_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
-	nothing
-end
-
-# ╔═╡ b241a26b-5e56-49b5-89a2-7921085378ac
-begin
-	f_vol_s_linear = (f, α) -> begin
-		inner = f_volume * f^2 + α_volume * α^2
-		if inner < 1
-			((1 - inner) / s_volume)^(1 / 2)
-		else
-			NaN
-		end
-	end
-	walk_volume(f_vol_s_linear)
-end
-
-# ╔═╡ 53b2c1a2-6534-4555-8911-c148fca41868
-begin
-	θ₀ = 0
-	x₀ = [0.0, 0.0]
-	f₀ = 0.0
-	s₀ = 0.0
-end
+# ╔═╡ 4dff9f0a-9fc6-4150-b66c-ef46509ae7fb
+md"""
+## Trajectory Generation
+"""
 
 # ╔═╡ 6f4545e5-c5fe-4967-a785-675e5b23a91f
 begin
@@ -100,6 +58,7 @@ begin
 		start
 		stop
 	end
+	
 	function sample_steps(line::Line, step_distance)
 		direction = line.stop - line.start
 		length = norm(direction)
@@ -118,6 +77,7 @@ begin
 		end
 		map(pos, arc.start:angle_dist:arc.stop)
 	end
+	
 	function generate_trajectory(path, step_distance)
 		collect(
 			Iterators.flatten(
@@ -127,50 +87,91 @@ begin
 			)
 		)
 	end
-	x_target = reduce(
-		hcat, 
-		generate_trajectory(
-			[
-				Line([0.0, 0.0], [0.0, -0.5]),
-				Line([0.0, -0.5], [0.5, 0.0]),
-				Line([0.5, 0.0], [0.5, 0.5]),
-				Line([0.5, 0.5], [1.0, 0.0]),
-				Arc(Circle([1.5, 0.0], 0.5), -pi, pi/2),
-				Arc(Circle([1.5, 0.75], 0.25), -pi/2, -pi),
-			], 
-			plan_step_size
-		)
-	)
-	#generate_trajectory([Line([0.0, 0.0], [0.0, 2.0]), Arc([0.0, 3.0, 1.0], -pi/2, pi)], 0.05)
-	#sample_steps(Line([0.0, 0.0], [1.0, 1.0]), 0.05)
+end
+
+# ╔═╡ 3fd94e9b-2242-4b74-8ed9-2453967c88b7
+md"""
+## MPC Optimization
+"""
+
+# ╔═╡ 51a7bf27-e07a-4ce7-91b7-2ccd15c720a8
+md"""
+## Example
+"""
+
+# ╔═╡ dbbb858c-11bc-45e6-863f-8e298ee572a7
+let
+	plan_step_slider = @bind plan_step_size Slider(0.0:0.005:0.1, default=0.07, show_value=true)
+	N_slider = @bind N_max Slider(2:99, default=99, show_value=true)
+	
+	f_slider = @bind f_range RangeSlider(-0.1:0.005:0.1, left=-0.02, right=0.06)
+	s_slider = @bind s_range RangeSlider(-0.2:0.005:0.2, left=-0.01, right=0.1)
+	α_slider = @bind α_range RangeSlider(-1.5:0.05:1.5, left=-0.1, right=0.9)
+
+	ḟ_slider = @bind ḟ_range RangeSlider(-1.0:0.005:1.0, left=-0.01, right=0.01)
+
+	path_cost_slider = @bind path_cost Slider(0.0:0.1:10, default=0.1, show_value=true)
+	x_end_cost_slider = @bind x_end_cost Slider(0.0:0.1:10, default=5.0, show_value=true)
+	θ_end_cost_slider = @bind θ_end_cost Slider(0.0:0.1:10, default=0.5, show_value=true)
+	f_end_cost_slider = @bind f_end_cost Slider(0.0:0.1:10, default=0.0, show_value=true)
+	s_end_cost_slider = @bind s_end_cost Slider(0.0:0.1:10, default=0.0, show_value=true)
+	α_end_cost_slider= @bind α_end_cost Slider(0.0:0.1:10, default=0.0, show_value=true)
+	f_cost_slider = @bind f_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
+	s_cost_slider = @bind s_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
+	α_cost_slider = @bind α_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
+
+	md"""
+	#### Planning
+	step\_size: $plan_step_slider $br
+	N: $N_slider
+	
+	#### Control Input Ranges
+	f: $f_slider $br
+	s: $s_slider $br
+	α: $α_slider $br
+
+	#### Dynamic Constraints
+	f\_acc: $ḟ_slider $br
+
+	#### Cost
+	path: $path_cost_slider $br
+	x\_end: $x_end_cost_slider $br
+	θ\_end: $θ_end_cost_slider $br
+	f\_end: $f_end_cost_slider $br
+	s\_end: $s_end_cost_slider $br
+	α\_end: $α_end_cost_slider $br
+	f: $f_cost_slider $br
+	s: $s_cost_slider $br
+	α: $α_cost_slider $br
+	"""
 end
 
 # ╔═╡ 7349357c-45c2-46fc-a726-f4ec6fbb75cc
-begin	
-	N = min(N_max, size(x_target, 2) - 1)
-	
-	θ_target = pi - 4 * pi
-	f_target = 0.0
-	s_target = 0.0
-	α_target = 0.0
-	
-	f_min = f_range[1]
-	f_max = f_range[end]
-	s_min = s_range[1]
-	s_max = s_range[end]
-	α_min = α_range[1]
-	α_max = α_range[end]
-
-	ḟ_min = ḟ_range[1]
-	ḟ_max = ḟ_range[end]
-	ṡ_min = ṡ_range[1]
-	ṡ_max = ṡ_range[end]
+function optimize_steps(
+	target_trajectory;
+	x₀,
+	θ₀,
+	f₀,
+	N_max,
+	θ_end,
+	f_end,
+	s_end,
+	α_end,
+	f_min,
+	f_max,
+	s_min,
+	s_max,
+	α_min,
+	α_max,
+	ḟ_min,
+	ḟ_max,
+)
+	N = min(N_max, size(target_trajectory, 2) - 1)
 	
 	model = Model(Ipopt.Optimizer)
 	set_silent(model)
-	initial_guess = zero(x_target[:, 2:end] - x_target[:, 1:end-1])
 
-	# variables
+	# variables: N controls, N+1 states
 	@variable(model, f[i=1:N])
 	@variable(model, s[i=1:N])
 	@variable(model, α[1:N])
@@ -203,176 +204,137 @@ begin
 	@constraint(model, [i=1:2:N], α_min <= α[i] <= α_max)
 	@constraint(model, [i=2:2:N], -α_max <= α[i] <= -α_min)
 
-	# walk volume
-	@constraint(
-		model,
-		[i=1:N],
-		f_volume * f[i]^2 + s_volume * s[i]^2 + α_volume * α[i]^2 <= 1
-	)
+	# walk volume TODO: scaling depends on direction
+	#@constraint(
+	#	model,
+	#	[i=1:N],
+	#	(f[i] / 1.0)^2 + (s[i] / 1.0)^2 + (α[i] / 1.0)^2 <= 1
+	#)
 
 	# acceleration
 	@constraint(model, ḟ_min <= f[1] - f₀ <= ḟ_max)
-	#@constraint(model, ṡ_min <= s[1] - s₀ <= ṡ_max)
 	@constraint(model, [i=1:(N-1)], ḟ_min <= f[i+1] - f[i] <= ḟ_max)
-	#@constraint(model, [i=1:(N-1)], ṡ_min <= s[i+1] - s[i] <= ṡ_max)
 
 	# objective
 	@NLobjective(
 		model,
 		Min, 
 		path_cost * sum(
-				(x[1, i] - x_target[1, i])^2 + (x[2, i] - x_target[2, i])^2 
+				(x[1, i] - target_trajectory[1, i])^2 + (x[2, i] - target_trajectory[2, i])^2 
 				for i in 1:N+1
 			)
 		+ sum(
 			f_cost * f[i]^2 + s_cost * s[i]^2 + α_cost * α[i]^2
 			for i in 1:N
 		) 
-		+ x_end_cost * ((x[1, N + 1] - x_target[1, N + 1])^2 + (x[2, N + 1] - x_target[2, N + 1])^2)
-		+ θ_end_cost * ((x[3, end] - cos(θ_target))^2 + (x[4, end] - sin(θ_target))^2)
-		+ f_end_cost * (f[end] - f_target)^2
-		+ s_end_cost * (s[end] - s_target)^2
-		+ α_end_cost * (α[end] - α_target)^2
+		+ x_end_cost * ((x[1, N + 1] - target_trajectory[1, N + 1])^2 + (x[2, N + 1] - target_trajectory[2, N + 1])^2)
+		+ θ_end_cost * ((x[3, end] - cos(θ_end))^2 + (x[4, end] - sin(θ_end))^2)
+		+ f_end_cost * (f[end] - f_end)^2
+		+ s_end_cost * (s[end] - s_end)^2
+		+ α_end_cost * (α[end] - α_end)^2
+	)
+
+	# solve
+	optimize!(model)
+	solution_summary(model)
+	
+	(
+		x = x,
+		f = f,
+		s = s,
+		α = α,
 	)
 end
 
-# ╔═╡ 55e1b9ed-1040-46cc-9fd8-7525ecffaeff
+# ╔═╡ 7e2c0fa6-6247-4f5a-b53c-442888e46cee
 begin
-	optimize!(model)
-	solution_summary(model)
-end
-
-# ╔═╡ c4c586f7-292c-4f1b-89e4-a6b96210f6e2
-begin
-	md"""
-	#### Planning
-	step\_size: $plan_step_slider $br
-	N: $N_slider
-	
-	#### Control Input Ranges
-	f: $f_slider $br
-	s: $s_slider $br
-	α: $α_slider $br
-
-	#### Dynamic Constraints
-	f\_acc: $ḟ_slider $br
-	s\_acc: $ṡ_slider $br
-
-	#### Walk Volume Function
-	f: $f_volume_slider $br
-	s: $s_volume_slider $br
-	α: $α_volume_slider $br
-
-	#### Cost
-	path: $path_cost_slider $br
-	x\_end: $x_end_cost_slider $br
-	θ\_end: $θ_end_cost_slider $br
-	f\_end: $f_end_cost_slider $br
-	s\_end: $s_end_cost_slider $br
-	α\_end: $α_end_cost_slider $br
-	f: $f_cost_slider $br
-	s: $s_cost_slider $br
-	α: $α_cost_slider $br
-	"""
+	target_trajectory = reduce(
+		hcat, 
+		generate_trajectory(
+			[
+				Line([0.0, 0.0], [0.0, -0.5]),
+				Line([0.0, -0.5], [0.5, 0.0]),
+				Line([0.5, 0.0], [0.5, 0.5]),
+				Line([0.5, 0.5], [1.0, 0.0]),
+				Arc(Circle([1.5, 0.0], 0.5), -pi, pi/2),
+				Arc(Circle([1.5, 0.75], 0.25), -pi/2, -pi),
+			], 
+			plan_step_size
+		)
+	)
+	steps = optimize_steps(
+		target_trajectory,
+		x₀ = [0.0, 0.0],
+		θ₀ = 0.0,
+		f₀ = 0.0,
+		N_max = N_max,
+		θ_end = -pi,
+		f_end = 0.0,
+		s_end = 0.0,
+		α_end = 0.0,
+		f_min = f_range[1],
+		f_max = f_range[end],
+		s_min = s_range[1],
+		s_max = s_range[end],
+		α_min = α_range[1],
+		α_max = α_range[end],
+		ḟ_min = ḟ_range[1],
+		ḟ_max = ḟ_range[end],
+	)
 end
 
 # ╔═╡ 72a92d91-d3f9-4043-b65e-15de03c2ddf3
-begin
-	x_trajectory = value.(x)
-	scatter(x_trajectory[1, :], x_trajectory[2, :], c=:white, msc=:black, label = "trajectory", aspect_ratio=:equal, legend=false)
-	quiver!(x_trajectory[1, :], x_trajectory[2, :], quiver=(0.03 * x_trajectory[3, :], 0.03 * x_trajectory[4, :]), c=:black)
-	plot!(x_target[1, :], x_target[2, :], label = "path")
-	scatter!(x_target[1, :], x_target[2, :], label = "target", mc=:red, ms=2, ma=0.5)
+let
+	xs = value.(steps.x)
+	scatter(xs[1, :], xs[2, :], c=:white, msc=:black, label = "trajectory", aspect_ratio=:equal, legend=false)
+	quiver!(xs[1, :], xs[2, :], quiver=(0.03 * xs[3, :], 0.03 * xs[4, :]), c=:black)
+	plot!(target_trajectory[1, :], target_trajectory[2, :], label = "path")
+	scatter!(target_trajectory[1, :], target_trajectory[2, :], label = "target", mc=:red, ms=2, ma=0.5)
 end
 
 # ╔═╡ 71951987-4072-4a56-aa28-87857159bbf5
-begin
-	step_min = minimum(x_target[1:2, :], dims=2) .- 0.1
-	step_max = maximum(x_target[1:2, :], dims=2) .+ 0.1
+let
+	xs = value.(steps.x)
+	step_min = minimum(target_trajectory[1:2, :], dims=2) .- 0.1
+	step_max = maximum(target_trajectory[1:2, :], dims=2) .+ 0.1
 	
-	animation = @animate for i in 1:(N+1)
-		scatter(x_trajectory[1, 1:i], x_trajectory[2, 1:i], c=:white, msc=:black, label = "trajectory", xlimits=(step_min[1], step_max[1]), ylimits=(step_min[2], step_max[2]), legend=false)
-		quiver!(x_trajectory[1, 1:i], x_trajectory[2, 1:i], quiver=(0.03 * x_trajectory[3, 1:i], 0.03*x_trajectory[4, 1:i]), c=:black)
-		plot!(x_target[1, :], x_target[2, :], label = "target", aspect_ratio=:equal)
-		scatter!(x_target[1, :], x_target[2, :], label = "target", mc=:red, ms=2, ma=0.5)
+	animation = @animate for i in 1:size(xs, 2)
+		scatter(xs[1, 1:i], xs[2, 1:i], c=:white, msc=:black, label = "trajectory", xlimits=(step_min[1], step_max[1]), ylimits=(step_min[2], step_max[2]), legend=false)
+		quiver!(xs[1, 1:i], xs[2, 1:i], quiver=(0.03 * xs[3, 1:i], 0.03*xs[4, 1:i]), c=:black)
+		plot!(target_trajectory[1, :], target_trajectory[2, :], label = "target", aspect_ratio=:equal)
+		scatter!(target_trajectory[1, :], target_trajectory[2, :], label = "target", mc=:red, ms=2, ma=0.5)
 	end
 	gif(animation, fps=5)
 end
 
-# ╔═╡ 20d9bee9-b6bb-48b4-bc60-7899bff66d9d
-value.(x_trajectory)
+# ╔═╡ 9df056bf-4e0c-46c2-aa14-ab61f4f908ab
+value.(steps.f)
 
-# ╔═╡ ecfeb468-16ae-4ca1-8f7a-63933a7e83f1
-value.(f)
+# ╔═╡ 095dc095-8f15-46c0-bbcf-d636c6719694
+value.(steps.s)
 
-# ╔═╡ 9efebb7b-3c9c-4e1e-9225-ac9d60cee6c2
-value.(s)
+# ╔═╡ f541f1ef-3b84-405c-a9d5-568a32f11346
+value.(steps.α)
 
-# ╔═╡ b7c5f531-e28f-4b41-9eba-4240025c30b7
-value.(α)
-
-# ╔═╡ c3fe3e0a-2adb-410b-a59a-682c0c2190d2
-x_target
-
-# ╔═╡ f399e534-56be-4bd5-a6e1-88ea1b28bb0a
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	rot = 2.0
-	trans = 1.5
-	vol_f = collect(0:0.01:1.0)
-	vol_s = collect(0:0.01:1.0)
-	Vol_f = [f for f = vol_f for _ = vol_s]
-	Vol_s = [s for _ = vol_f for s = vol_s]
-	Vol_α = ((f, s) -> begin
-		if (f^trans + s^trans)^(rot / trans) < 1
-			(1 - (f^trans + s^trans)^(rot / trans))^(1 / rot)
-		else
-			0.0
-		end
-	end)
-	plot()
-	l = @layout [a b; c d]
-	a = surface(f_range[end] .* Vol_f, s_range[end] .* Vol_s, α_range[end] .* Vol_α.(Vol_f, Vol_s), xlims=(f_range[1], f_range[end]), ylims=(s_range[1], s_range[end]))
-	b = surface(f_range[1] .* Vol_f, s_range[end] .* Vol_s, α_range[end] .* Vol_α.(Vol_f, Vol_s), xlims=(f_range[1], f_range[end]), ylims=(s_range[1], s_range[end]))
-	c = surface(f_range[end] .* Vol_f, s_range[1] .* Vol_s, α_range[end] .* Vol_α.(Vol_f, Vol_s), xlims=(f_range[1], f_range[end]), ylims=(s_range[1], s_range[end]))
-	d = surface(f_range[1] .* Vol_f, s_range[1] .* Vol_s, α_range[end] .* Vol_α.(Vol_f, Vol_s), xlims=(f_range[1], f_range[end]), ylims=(s_range[1], s_range[end]))
-	plot(b, a, d, c)
-end
-  ╠═╡ =#
-
-# ╔═╡ 53b85603-f141-4656-a19e-b465ae79f717
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	grid_space = collect(Iterators.product(f_range[1]:0.005:f_range[end], s_range[1]:0.005:s_range[end], α_range[1]:0.01:α_range[end]))
-	walk_volume = filter(grid_space) do x
-		f_max = if x[1] < 0.0
-			f_range[1]
-		else
-			f_range[end]
-		end
-		s_max = if x[2] < 0.0
-			s_range[1]
-		else
-			s_range[end]
-		end
-		α_max = if x[3] < 0.0
-			α_range[1]
-		else
-			α_range[end]
-		end
-		f = x[1] / abs(f_max)
-		s = x[2] / abs(s_max)
-		α = x[3] / abs(α_max)
-		(abs(f)^(1.5) + abs(s)^(1.5))^(2.0/1.5) + abs(α)^(2.0) <= 1.0
+# ╔═╡ 1a5c6ad0-13cc-4847-a73d-1c121961ee6e
+function export_json(steps)
+	controls = zip(value.(steps.f), value.(steps.s), value.(steps.α))
+	out = map(controls) do (f, s, α)
+		Dict("base_step" => Dict("forward" => f, "left" => s, "turn" => α))
 	end
-	scatter(walk_volume)
+	JSON.print(out)
 end
-  ╠═╡ =#
+
+# ╔═╡ 901876e1-b2f6-476c-a9a6-b4f65d76ff01
+export_json(steps)
+
+# ╔═╡ e0f168ac-9508-4576-92af-c73d337f79d9
+md"""
+## Walk Volume
+"""
 
 # ╔═╡ 0e53ad16-988f-47b2-afe3-6bfad2099a0e
-begin
+let
 	rot = 2.0
 	trans = 1.5
 	f_vol_s_main = (f, α) -> begin
@@ -384,9 +346,9 @@ begin
 				end
 			end
 		
-	function walk_volume(f_vol_s)
+	global function walk_volume(f_vol_s)
 		vol_α = collect(0.0:0.05:1.0)
-		p = plot(legend=false, xlabel="Left/Right", ylabel="Forward/Backward", xflip=true)
+		p = plot(xlabel="Left/Right", ylabel="Forward/Backward", xflip=true, legend=false)
 		for α = vol_α
 			vol_f = collect(0.0:0.0001:1.0)
 			vol_s = map(f -> f_vol_s(f, α), vol_f)
@@ -399,10 +361,24 @@ begin
 	walk_volume(f_vol_s_main)
 end
 
+# ╔═╡ b241a26b-5e56-49b5-89a2-7921085378ac
+let
+	f_vol_s_linear = (f, α) -> begin
+		inner = f^2 + α^2
+		if inner < 1
+			(1 - inner)^(1 / 2)
+		else
+			NaN
+		end
+	end
+	walk_volume(f_vol_s_linear)
+end
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Ipopt = "b6b21f68-93f8-5de0-b562-5493be1d77c9"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
@@ -410,6 +386,7 @@ PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 
 [compat]
 Ipopt = "~1.4.2"
+JSON = "~0.21.4"
 JuMP = "~1.15.1"
 Plots = "~1.39.0"
 PlutoUI = "~0.7.52"
@@ -421,7 +398,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "20ba4ef46a23f14252a65a19f1d23e795cf5073f"
+project_hash = "3462dd257a1ea41cb0c647545ef46f38333234b1"
 
 [[deps.ASL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1646,25 +1623,25 @@ version = "1.4.1+1"
 """
 
 # ╔═╡ Cell order:
+# ╟─34fbabb5-3947-46b0-b4f5-5e9a853758dc
 # ╠═64153989-b00a-4f15-8f02-281d03174db1
 # ╠═ca8afe74-589e-11ee-1041-bb2fd694fe5f
-# ╠═03ffbcd1-dcb6-408a-aee8-c32e18e6384c
-# ╠═dbbb858c-11bc-45e6-863f-8e298ee572a7
-# ╟─53b85603-f141-4656-a19e-b465ae79f717
-# ╟─f399e534-56be-4bd5-a6e1-88ea1b28bb0a
-# ╟─0e53ad16-988f-47b2-afe3-6bfad2099a0e
-# ╟─b241a26b-5e56-49b5-89a2-7921085378ac
-# ╠═53b2c1a2-6534-4555-8911-c148fca41868
+# ╟─4dff9f0a-9fc6-4150-b66c-ef46509ae7fb
 # ╠═6f4545e5-c5fe-4967-a785-675e5b23a91f
+# ╟─3fd94e9b-2242-4b74-8ed9-2453967c88b7
 # ╠═7349357c-45c2-46fc-a726-f4ec6fbb75cc
-# ╠═55e1b9ed-1040-46cc-9fd8-7525ecffaeff
-# ╟─c4c586f7-292c-4f1b-89e4-a6b96210f6e2
+# ╟─51a7bf27-e07a-4ce7-91b7-2ccd15c720a8
+# ╠═7e2c0fa6-6247-4f5a-b53c-442888e46cee
+# ╟─dbbb858c-11bc-45e6-863f-8e298ee572a7
 # ╟─72a92d91-d3f9-4043-b65e-15de03c2ddf3
 # ╟─71951987-4072-4a56-aa28-87857159bbf5
-# ╠═20d9bee9-b6bb-48b4-bc60-7899bff66d9d
-# ╠═ecfeb468-16ae-4ca1-8f7a-63933a7e83f1
-# ╠═9efebb7b-3c9c-4e1e-9225-ac9d60cee6c2
-# ╠═b7c5f531-e28f-4b41-9eba-4240025c30b7
-# ╠═c3fe3e0a-2adb-410b-a59a-682c0c2190d2
+# ╠═9df056bf-4e0c-46c2-aa14-ab61f4f908ab
+# ╠═095dc095-8f15-46c0-bbcf-d636c6719694
+# ╠═f541f1ef-3b84-405c-a9d5-568a32f11346
+# ╠═1a5c6ad0-13cc-4847-a73d-1c121961ee6e
+# ╠═901876e1-b2f6-476c-a9a6-b4f65d76ff01
+# ╟─e0f168ac-9508-4576-92af-c73d337f79d9
+# ╟─0e53ad16-988f-47b2-afe3-6bfad2099a0e
+# ╟─b241a26b-5e56-49b5-89a2-7921085378ac
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
