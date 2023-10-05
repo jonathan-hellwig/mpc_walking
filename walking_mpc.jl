@@ -20,42 +20,139 @@ begin
 	import Ipopt
 	using Plots
 	using PlutoUI
+	import PlotlyJS
+	using LinearAlgebra
+end
+
+# ╔═╡ 64153989-b00a-4f15-8f02-281d03174db1
+html"""<style>
+main {
+    max-width: 1000px;
+}
+"""
+
+# ╔═╡ 03ffbcd1-dcb6-408a-aee8-c32e18e6384c
+begin
+	plotlyjs()
 end
 
 # ╔═╡ dbbb858c-11bc-45e6-863f-8e298ee572a7
 begin
+	plan_step_slider = @bind plan_step_size Slider(0.0:0.005:0.1, default=0.07, show_value=true)
+	N_slider = @bind N_max Slider(2:99, default=99, show_value=true)
+	
 	f_slider = @bind f_range RangeSlider(-0.1:0.005:0.1, left=-0.02, right=0.06)
-	s_slider = @bind s_range RangeSlider(-0.2:0.005:0.2, left=0.0, right=0.1)
+	s_slider = @bind s_range RangeSlider(-0.2:0.005:0.2, left=-0.01, right=0.1)
 	α_slider = @bind α_range RangeSlider(-1.5:0.05:1.5, left=-0.1, right=0.9)
 
-	ḟ_slider = @bind ḟ_range RangeSlider(-1.0:0.005:1.0, left=-1.0, right=1.0)
-	ṡ_slider = @bind ṡ_range RangeSlider(-1.0:0.005:1.0, left=-1.0, right=1.0)
+	ḟ_slider = @bind ḟ_range RangeSlider(-1.0:0.005:1.0, left=-0.03, right=0.03)
+	ṡ_slider = @bind ṡ_range RangeSlider(-1.0:0.005:1.0, left=-0.05, right=0.05)
 
-	f_volume_slider = @bind f_volume Slider(0.0:0.1:1000, default=0.0, show_value=true)
-	s_volume_slider = @bind s_volume Slider(0.0:0.1:1000, default=0.0, show_value=true)
-	α_volume_slider = @bind α_volume Slider(0.0:0.1:1000, default=0.0, show_value=true)
+	f_volume_slider = @bind f_volume Slider(0.0:0.1:10, default=10.0, show_value=true)
+	s_volume_slider = @bind s_volume Slider(0.0:0.1:10, default=100.0, show_value=true)
+	α_volume_slider = @bind α_volume Slider(0.0:0.1:10, default=1.0, show_value=true)
 
 	path_cost_slider = @bind path_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
-	θ_cost_slider = @bind θ_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	θ_end_cost_slider = @bind θ_end_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	f_end_cost_slider = @bind f_end_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	s_end_cost_slider = @bind s_end_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
+	α_end_cost_slider= @bind α_end_cost Slider(0.0:0.1:10, default=1.0, show_value=true)
 	f_cost_slider = @bind f_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
 	s_cost_slider = @bind s_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
 	α_cost_slider = @bind α_cost Slider(0.0:0.01:10, default=0.01, show_value=true)
 	nothing
 end
 
-# ╔═╡ 7349357c-45c2-46fc-a726-f4ec6fbb75cc
+# ╔═╡ 53b85603-f141-4656-a19e-b465ae79f717
 begin
-	N = 39
+	grid_space = collect(Iterators.product(f_range[1]:0.005:f_range[end], s_range[1]:0.005:s_range[end], α_range[1]:0.01:α_range[end]))
+	walk_volume = filter(grid_space) do x
+		f_max = if x[1] < 0.0
+			f_range[1]
+		else
+			f_range[end]
+		end
+		s_max = if x[2] < 0.0
+			s_range[1]
+		else
+			s_range[end]
+		end
+		α_max = if x[3] < 0.0
+			α_range[1]
+		else
+			α_range[end]
+		end
+		f = x[1] / abs(f_max)
+		s = x[2] / abs(s_max)
+		α = x[3] / abs(α_max)
+		(abs(f)^(1.5) + abs(s)^(1.5))^(2.0/1.5) + abs(α)^(2.0) <= 1.0
+	end
+	scatter(walk_volume)
+end
 
-	t_max = 1
-	t = LinRange(0, t_max, 20)
-	x_target1 = hcat(t, zero(t))
-	x_target2 = hcat(sin.(t * 2) ./ 2 .+ x_target1[end,1] .+ 0.05, -cos.(t * 2) ./ 2 .+ 0.5 .+ x_target1[end,2])
-	x_target = vcat(x_target1, x_target2)
-	θ_target = -pi + 2 * pi
-
+# ╔═╡ 53b2c1a2-6534-4555-8911-c148fca41868
+begin
 	θ₀ = 0
-	x₀ = [x_target[1,1], x_target[1,2], θ₀]
+	x₀ = [0.0, 0.0]
+	f₀ = 0.0
+	s₀ = 0.0
+end
+
+# ╔═╡ 6f4545e5-c5fe-4967-a785-675e5b23a91f
+begin
+	struct Line
+		start
+		stop
+	end
+	struct Arc
+		circle
+		start
+		stop
+	end
+	function sample_steps(line::Line, step_distance)
+		direction = line.stop - line.start
+		length = norm(direction)
+		steps = length / step_distance
+		map(0:steps) do steps
+			line.start .+ normalize(direction) * step_distance * steps
+		end
+	end
+	function sample_steps(line::Arc, step_distance)
+		[[3.0, 3.0], [4.0, 4.0], [5.0, 5.0]]
+	end
+	function generate_trajectory(path, step_distance)
+		collect(
+			Iterators.flatten(
+				map(path) do object
+					sample_steps(object, step_distance)
+				end
+			)
+		)
+	end
+	x_target = reduce(
+		hcat, 
+		generate_trajectory(
+			[
+				Line([0.0, 0.0], [0.0, 1.0]),
+				Line([0.0, 1.0], [0.5, 0.0]),
+				Line([0.5, 0.0], [1.0, 1.0]),
+				Line([1.0, 1.0], [1.0, 0.0]),
+			], 
+			plan_step_size
+		)
+	)
+	#generate_trajectory([Line([0.0, 0.0], [0.0, 2.0]), Arc([0.0, 3.0, 1.0], -pi/2, pi)], 0.05)
+	#sample_steps(Line([0.0, 0.0], [1.0, 1.0]), 0.05)
+end
+
+# ╔═╡ 7349357c-45c2-46fc-a726-f4ec6fbb75cc
+begin	
+	N = min(N_max, size(x_target, 2) - 1)
+	
+	θ_target = pi - 4 * pi
+	f_target = 0.0
+	s_target = 0.0
+	α_target = 0.0
 	
 	f_min = f_range[1]
 	f_max = f_range[end]
@@ -71,31 +168,33 @@ begin
 	
 	model = Model(Ipopt.Optimizer)
 	set_silent(model)
-	initial_guess = zero(x_target[2:end,:] - x_target[1:end-1,:])
+	initial_guess = zero(x_target[:, 2:end] - x_target[:, 1:end-1])
 
 	# variables
-	@variable(model, f[i=1:N], start=initial_guess[i,1])
-	@variable(model, s[i=1:N], start=initial_guess[i,2])
+	@variable(model, f[i=1:N])
+	@variable(model, s[i=1:N])
 	@variable(model, α[1:N])
-	@variable(model, x[1:N+1,1:3])
+	@variable(model, x[1:4, 1:N+1])
 	
 	# x₀
-	fix(x[1,1], x₀[1])
-	fix(x[1,2], x₀[2])
-	fix(x[1,3], x₀[3])
+	fix(x[1, 1], x₀[1])
+	fix(x[2, 1], x₀[2])
+	fix(x[3, 1], cos(θ₀))
+	fix(x[4, 1], sin(θ₀))
 
 	# dynamic constraints
-	@NLconstraint(
+	@constraint(
 		model, 
 		[i=1:N],
-		x[i+1,1] == x[i,1] + f[i] * cos(x[i,3]) - s[i] * sin(x[i,3])
+		x[1, i+1] == x[1, i] + f[i] * x[3, i] - s[i] * x[4, i]
 	)
-	@NLconstraint(
+	@constraint(
 		model,
 		[i=1:N],
-		x[i+1,2] == x[i,2] + f[i] * sin(x[i,3]) + s[i] * cos(x[i,3])
+		x[2, i+1] == x[2, i] + f[i] * x[4, i] + s[i] * x[3, i]
 	)
-	@constraint(model, [i=1:N], x[i+1,3] == x[i,3] + α[i])
+	@NLconstraint(model, [i=1:N], x[3, i+1] == x[3, i] * cos(α[i]) - x[4, i] * sin(α[i]))
+	@NLconstraint(model, [i=1:N], x[4, i+1] == x[3, i] * sin(α[i]) + x[4, i] * cos(α[i]))
 
 	# input constraints
 	@constraint(model, [i=1:N], f_min <= f[i] <= f_max)
@@ -112,6 +211,8 @@ begin
 	)
 
 	# acceleration
+	@constraint(model, ḟ_min <= f[1] - f₀ <= ḟ_max)
+	@constraint(model, ṡ_min <= s[1] - s₀ <= ṡ_max)
 	@constraint(model, [i=1:(N-1)], ḟ_min <= f[i+1] - f[i] <= ḟ_max)
 	@constraint(model, [i=1:(N-1)], ṡ_min <= s[i+1] - s[i] <= ṡ_max)
 
@@ -120,14 +221,18 @@ begin
 		model,
 		Min, 
 		path_cost * sum(
-				(x[i,1] - x_target[i,1])^2 + (x[i,2] - x_target[i,2])^2 
+				(x[1, i] - x_target[1, i])^2 + (x[2, i] - x_target[2, i])^2 
 				for i in 1:N+1
 			)
 		+ sum(
 			f_cost * f[i]^2 + s_cost * s[i]^2 + α_cost * α[i]^2
 			for i in 1:N
 		) 
-		+ θ_cost * (x[end,3] - θ_target)^2)
+		+ θ_end_cost * ((x[3, end] - cos(θ_target))^2 + (x[4, end] - sin(θ_target))^2)
+		+ f_end_cost * (f[end] - f_target)^2
+		+ s_end_cost * (s[end] - s_target)^2
+		+ α_end_cost * (α[end] - α_target)^2
+	)
 end
 
 # ╔═╡ 55e1b9ed-1040-46cc-9fd8-7525ecffaeff
@@ -139,6 +244,10 @@ end
 # ╔═╡ c4c586f7-292c-4f1b-89e4-a6b96210f6e2
 begin
 	md"""
+	#### Planning
+	step\_size: $plan_step_slider $br
+	N: $N_slider
+	
 	#### Control Input Ranges
 	f: $f_slider $br
 	s: $s_slider $br
@@ -155,7 +264,10 @@ begin
 
 	#### Cost
 	path: $path_cost_slider $br
-	θ: $θ_cost_slider $br
+	θ\_end: $θ_end_cost_slider $br
+	f\_end: $f_end_cost_slider $br
+	s\_end: $s_end_cost_slider $br
+	α\_end: $α_end_cost_slider $br
 	f: $f_cost_slider $br
 	s: $s_cost_slider $br
 	α: $α_cost_slider $br
@@ -165,10 +277,24 @@ end
 # ╔═╡ 72a92d91-d3f9-4043-b65e-15de03c2ddf3
 begin
 	x_trajectory = value.(x)
-	scatter(x_trajectory[:,1], x_trajectory[:,2], c=:white, msc=:black, label = "trajectory", aspect_ratio=:equal)
-	quiver!(x_trajectory[:,1], x_trajectory[:,2], quiver=(0.03 * cos.(x_trajectory[:,3]), 0.03 * sin.(x_trajectory[:,3])), c=:black)
-	plot!(x_target[:,1], x_target[:,2], label = "path")
-	scatter!(x_target[:,1], x_target[:,2], label = "target", mc=:red, ms=2, ma=0.5)
+	scatter(x_trajectory[1, :], x_trajectory[2, :], c=:white, msc=:black, label = "trajectory", aspect_ratio=:equal)
+	quiver!(x_trajectory[1, :], x_trajectory[2, :], quiver=(0.03 * x_trajectory[3, :], 0.03 * x_trajectory[4, :]), c=:black)
+	plot!(x_target[1, :], x_target[2, :], label = "path")
+	scatter!(x_target[1, :], x_target[2, :], label = "target", mc=:red, ms=2, ma=0.5)
+end
+
+# ╔═╡ 71951987-4072-4a56-aa28-87857159bbf5
+begin
+	step_min = minimum(x_target[1:2, :], dims=2) .- 0.1
+	step_max = maximum(x_target[1:2, :], dims=2) .+ 0.1
+	
+	animation = @animate for i in 1:(N+1)
+		scatter(x_trajectory[1, 1:i], x_trajectory[2, 1:i], c=:white, msc=:black, label = "trajectory", xlimits=(step_min[1], step_max[1]), ylimits=(step_min[2], step_max[2]))
+		quiver!(x_trajectory[1, 1:i], x_trajectory[2, 1:i], quiver=(0.03 * x_trajectory[3, 1:i], 0.03*x_trajectory[4, 1:i]), c=:black)
+		plot!(x_target[1, :], x_target[2, :], label = "target", aspect_ratio=:equal)
+		scatter!(x_target[1, :], x_target[2, :], label = "target", mc=:red, ms=2, ma=0.5)
+	end
+	gif(animation, fps=5)
 end
 
 # ╔═╡ 20d9bee9-b6bb-48b4-bc60-7899bff66d9d
@@ -191,12 +317,15 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 Ipopt = "b6b21f68-93f8-5de0-b562-5493be1d77c9"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+PlotlyJS = "f0f68f2c-4968-5e81-91da-67840de0976a"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 
 [compat]
 Ipopt = "~1.4.2"
-JuMP = "~1.15.0"
+JuMP = "~1.15.1"
+PlotlyJS = "~0.18.10"
 Plots = "~1.39.0"
 PlutoUI = "~0.7.52"
 """
@@ -207,7 +336,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.9.3"
 manifest_format = "2.0"
-project_hash = "6eaaf44257ff19a723da0051d15381cedfff20eb"
+project_hash = "624daf9be1914f3fa5b00dc1bbb143990694455c"
 
 [[deps.ASL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -228,6 +357,12 @@ version = "1.1.1"
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
+[[deps.AssetRegistry]]
+deps = ["Distributed", "JSON", "Pidfile", "SHA", "Test"]
+git-tree-sha1 = "b25e88db7944f98789130d7b503276bc34bc098e"
+uuid = "bf4720bc-e11a-5d0c-854e-bdca1663c893"
+version = "0.1.0"
+
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
@@ -241,6 +376,12 @@ version = "1.3.2"
 git-tree-sha1 = "43b1a4a8f797c1cddadf60499a8a077d4af2cd2d"
 uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
 version = "0.1.7"
+
+[[deps.Blink]]
+deps = ["Base64", "Distributed", "HTTP", "JSExpr", "JSON", "Lazy", "Logging", "MacroTools", "Mustache", "Mux", "Pkg", "Reexport", "Sockets", "WebIO"]
+git-tree-sha1 = "b1c61fd7e757c7e5ca6521ef41df8d929f41e3af"
+uuid = "ad839575-38b3-5650-b840-f874b8c74a25"
+version = "0.12.8"
 
 [[deps.Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -302,9 +443,9 @@ version = "0.3.0"
 
 [[deps.Compat]]
 deps = ["UUIDs"]
-git-tree-sha1 = "e460f044ca8b99be31d35fe54fc33a5c33dd8ed7"
+git-tree-sha1 = "8a62af3e248a8c4bad6b32cbbe663ae02275e32c"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
-version = "4.9.0"
+version = "4.10.0"
 weakdeps = ["Dates", "LinearAlgebra"]
 
     [deps.Compat.extensions]
@@ -337,6 +478,11 @@ git-tree-sha1 = "3dbd312d370723b6bb43ba9d02fc36abade4518d"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 version = "0.18.15"
 
+[[deps.DataValueInterfaces]]
+git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
+uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
+version = "1.0.0"
+
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
@@ -358,6 +504,10 @@ deps = ["IrrationalConstants", "LogExpFunctions", "NaNMath", "Random", "SpecialF
 git-tree-sha1 = "23163d55f885173722d1e4cf0f6110cdbaf7e272"
 uuid = "b552c78f-8df3-52c6-915a-8e097449b14b"
 version = "1.15.1"
+
+[[deps.Distributed]]
+deps = ["Random", "Serialization", "Sockets"]
+uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[deps.DocStringExtensions]]
 deps = ["LibGit2"]
@@ -445,6 +595,12 @@ git-tree-sha1 = "aa31987c2ba8704e23c6c8ba8a4f769d5d7e4f91"
 uuid = "559328eb-81f9-559d-9380-de523a88c83c"
 version = "1.0.10+0"
 
+[[deps.FunctionalCollections]]
+deps = ["Test"]
+git-tree-sha1 = "04cb9cfaa6ba5311973994fe3496ddec19b6292a"
+uuid = "de31a74c-ac4f-5751-b3fd-e18cd04993ca"
+version = "0.5.0"
+
 [[deps.GLFW_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libglvnd_jll", "Pkg", "Xorg_libXcursor_jll", "Xorg_libXi_jll", "Xorg_libXinerama_jll", "Xorg_libXrandr_jll"]
 git-tree-sha1 = "d972031d28c8c8d9d7b41a536ad7bb0c2579caca"
@@ -498,6 +654,12 @@ git-tree-sha1 = "129acf094d168394e80ee1dc4bc06ec835e510a3"
 uuid = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
 version = "2.8.1+1"
 
+[[deps.Hiccup]]
+deps = ["MacroTools", "Test"]
+git-tree-sha1 = "6187bb2d5fcbb2007c39e7ac53308b0d371124bd"
+uuid = "9fb69e20-1954-56bb-a84f-559cc56a8ff7"
+version = "0.2.2"
+
 [[deps.Hwloc_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "8ecb0b34472a3c98f945e3c75fc7d5428d165511"
@@ -543,6 +705,11 @@ git-tree-sha1 = "630b497eafcc20001bba38a4651b327dcfc491d2"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.2"
 
+[[deps.IteratorInterfaceExtensions]]
+git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
+uuid = "82899510-4779-5014-852e-03e436cf321d"
+version = "1.0.0"
+
 [[deps.JLFzf]]
 deps = ["Pipe", "REPL", "Random", "fzf_jll"]
 git-tree-sha1 = "f377670cda23b6b7c1c0b3893e37451c5c1a2185"
@@ -554,6 +721,12 @@ deps = ["Artifacts", "Preferences"]
 git-tree-sha1 = "7e5d6779a1e09a36db2a7b6cff50942a0a7d0fca"
 uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
 version = "1.5.0"
+
+[[deps.JSExpr]]
+deps = ["JSON", "MacroTools", "Observables", "WebIO"]
+git-tree-sha1 = "b413a73785b98474d8af24fd4c8a975e31df3658"
+uuid = "97c1335a-c9c5-57fe-bc5d-ec35cebe8660"
+version = "0.5.4"
 
 [[deps.JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
@@ -569,15 +742,21 @@ version = "2.1.91+0"
 
 [[deps.JuMP]]
 deps = ["LinearAlgebra", "MacroTools", "MathOptInterface", "MutableArithmetics", "OrderedCollections", "Printf", "SnoopPrecompile", "SparseArrays"]
-git-tree-sha1 = "9c79962793f1d584e24f8b8b8c8ad6aa7f3bdeaa"
+git-tree-sha1 = "3700a700bc80856fe673b355123ae4574f2d5dfe"
 uuid = "4076af6c-e467-56ae-b986-b466b2749572"
-version = "1.15.0"
+version = "1.15.1"
 
     [deps.JuMP.extensions]
     JuMPDimensionalDataExt = "DimensionalData"
 
     [deps.JuMP.weakdeps]
     DimensionalData = "0703355e-b756-11e9-17c0-8b28908087d0"
+
+[[deps.Kaleido_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "43032da5832754f58d14a91ffbe86d5f176acda9"
+uuid = "f7e6163d-2fa5-5f23-b69c-1db539e41963"
+version = "0.2.1+0"
 
 [[deps.LAME_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -621,6 +800,12 @@ version = "0.16.1"
     [deps.Latexify.weakdeps]
     DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
     SymEngine = "123dc426-2d89-5057-bbad-38513e3affd8"
+
+[[deps.Lazy]]
+deps = ["MacroTools"]
+git-tree-sha1 = "1370f8202dac30758f3c345f9909b97f53d87d3f"
+uuid = "50d2b5c4-7a5e-59d5-8109-a42b560f39c0"
+version = "0.15.1"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -717,9 +902,9 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
 [[deps.LoggingExtras]]
 deps = ["Dates", "Logging"]
-git-tree-sha1 = "0d097476b6c381ab7906460ef1ef1638fbce1d91"
+git-tree-sha1 = "c1dd6d7978c12545b4179fb6153b9250c96b0075"
 uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
-version = "1.0.2"
+version = "1.0.3"
 
 [[deps.METIS_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -750,9 +935,9 @@ uuid = "d6f4376e-aef5-505a-96c1-9c027394607a"
 
 [[deps.MathOptInterface]]
 deps = ["BenchmarkTools", "CodecBzip2", "CodecZlib", "DataStructures", "ForwardDiff", "JSON", "LinearAlgebra", "MutableArithmetics", "NaNMath", "OrderedCollections", "PrecompileTools", "Printf", "SparseArrays", "SpecialFunctions", "Test", "Unicode"]
-git-tree-sha1 = "8bfc1519e9de0564d378b3886b21b9a2f04cbdb5"
+git-tree-sha1 = "5c9f1e635e8d491297e596b56fec1c95eafb95a3"
 uuid = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
-version = "1.20.0"
+version = "1.20.1"
 
 [[deps.MbedTLS]]
 deps = ["Dates", "MbedTLS_jll", "MozillaCACerts_jll", "Random", "Sockets"]
@@ -783,11 +968,23 @@ uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2022.10.11"
 
+[[deps.Mustache]]
+deps = ["Printf", "Tables"]
+git-tree-sha1 = "821e918c170ead5298ff84bffee41dd28929a681"
+uuid = "ffc61752-8dc7-55ee-8c37-f3e9cdd09e70"
+version = "1.0.17"
+
 [[deps.MutableArithmetics]]
 deps = ["LinearAlgebra", "SparseArrays", "Test"]
 git-tree-sha1 = "6985021d02ab8c509c841bb8b2becd3145a7b490"
 uuid = "d8a4904e-b15c-11e9-3269-09a3773c0cb0"
 version = "1.3.3"
+
+[[deps.Mux]]
+deps = ["AssetRegistry", "Base64", "HTTP", "Hiccup", "MbedTLS", "Pkg", "Sockets"]
+git-tree-sha1 = "0bdaa479939d2a1f85e2f93e38fbccfcb73175a5"
+uuid = "a975b10e-0019-58db-a62f-e48ff68538c9"
+version = "1.0.1"
 
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
@@ -798,6 +995,11 @@ version = "1.0.2"
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.2.0"
+
+[[deps.Observables]]
+git-tree-sha1 = "6862738f9796b3edc1c09d0890afce4eca9e7e93"
+uuid = "510215fc-4207-5dde-b226-833fc4488ee2"
+version = "0.5.4"
 
 [[deps.Ogg_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -855,11 +1057,23 @@ deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
 version = "10.42.0+0"
 
+[[deps.Parameters]]
+deps = ["OrderedCollections", "UnPack"]
+git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+version = "0.12.3"
+
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
 git-tree-sha1 = "716e24b21538abc91f6205fd1d8363f39b442851"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "2.7.2"
+
+[[deps.Pidfile]]
+deps = ["FileWatching", "Test"]
+git-tree-sha1 = "2d8aaf8ee10df53d0dfb9b8ee44ae7c04ced2b03"
+uuid = "fa939f87-e72e-5be4-a000-7fc836dbe307"
+version = "1.3.0"
 
 [[deps.Pipe]]
 git-tree-sha1 = "6842804e7867b115ca9de748a0cf6b364523c16d"
@@ -888,6 +1102,18 @@ deps = ["ColorSchemes", "Colors", "Dates", "PrecompileTools", "Printf", "Random"
 git-tree-sha1 = "f92e1315dadf8c46561fb9396e525f7200cdc227"
 uuid = "995b91a9-d308-5afd-9ec6-746e21dbc043"
 version = "1.3.5"
+
+[[deps.PlotlyBase]]
+deps = ["ColorSchemes", "Dates", "DelimitedFiles", "DocStringExtensions", "JSON", "LaTeXStrings", "Logging", "Parameters", "Pkg", "REPL", "Requires", "Statistics", "UUIDs"]
+git-tree-sha1 = "56baf69781fc5e61607c3e46227ab17f7040ffa2"
+uuid = "a03496cd-edff-5a9b-9e67-9cda94a718b5"
+version = "0.8.19"
+
+[[deps.PlotlyJS]]
+deps = ["Base64", "Blink", "DelimitedFiles", "JSExpr", "JSON", "Kaleido_jll", "Markdown", "Pkg", "PlotlyBase", "REPL", "Reexport", "Requires", "WebIO"]
+git-tree-sha1 = "7452869933cd5af22f59557390674e8679ab2338"
+uuid = "f0f68f2c-4968-5e81-91da-67840de0976a"
+version = "0.18.10"
 
 [[deps.Plots]]
 deps = ["Base64", "Contour", "Dates", "Downloads", "FFMPEG", "FixedPointNumbers", "GR", "JLFzf", "JSON", "LaTeXStrings", "Latexify", "LinearAlgebra", "Measures", "NaNMath", "Pkg", "PlotThemes", "PlotUtils", "PrecompileTools", "Preferences", "Printf", "REPL", "Random", "RecipesBase", "RecipesPipeline", "Reexport", "RelocatableFolders", "Requires", "Scratch", "Showoff", "SparseArrays", "Statistics", "StatsBase", "UUIDs", "UnicodeFun", "UnitfulLatexify", "Unzip"]
@@ -1057,9 +1283,9 @@ version = "1.7.0"
 
 [[deps.StatsBase]]
 deps = ["DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
-git-tree-sha1 = "75ebe04c5bed70b91614d684259b661c9e6274a4"
+git-tree-sha1 = "1d77abd07f617c4868c33d4f5b9e1dbb2643c9cf"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-version = "0.34.0"
+version = "0.34.2"
 
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "Pkg", "libblastrampoline_jll"]
@@ -1070,6 +1296,18 @@ version = "5.10.1+6"
 deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
+
+[[deps.TableTraits]]
+deps = ["IteratorInterfaceExtensions"]
+git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
+uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
+version = "1.0.1"
+
+[[deps.Tables]]
+deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "LinearAlgebra", "OrderedCollections", "TableTraits"]
+git-tree-sha1 = "a1f34829d5ac0ef499f6d84428bd6b4c71f02ead"
+uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+version = "1.11.0"
 
 [[deps.Tar]]
 deps = ["ArgTools", "SHA"]
@@ -1105,6 +1343,11 @@ version = "1.5.0"
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+
+[[deps.UnPack]]
+git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
+version = "1.0.2"
 
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
@@ -1158,11 +1401,29 @@ git-tree-sha1 = "4528479aa01ee1b3b4cd0e6faef0e04cf16466da"
 uuid = "2381bf8a-dfd0-557d-9999-79630e7b1b91"
 version = "1.25.0+0"
 
+[[deps.WebIO]]
+deps = ["AssetRegistry", "Base64", "Distributed", "FunctionalCollections", "JSON", "Logging", "Observables", "Pkg", "Random", "Requires", "Sockets", "UUIDs", "WebSockets", "Widgets"]
+git-tree-sha1 = "0eef0765186f7452e52236fa42ca8c9b3c11c6e3"
+uuid = "0f1e0344-ec1d-5b48-a673-e5cf874b6c29"
+version = "0.8.21"
+
+[[deps.WebSockets]]
+deps = ["Base64", "Dates", "HTTP", "Logging", "Sockets"]
+git-tree-sha1 = "4162e95e05e79922e44b9952ccbc262832e4ad07"
+uuid = "104b5d7c-a370-577a-8038-80a2059c5097"
+version = "1.6.0"
+
+[[deps.Widgets]]
+deps = ["Colors", "Dates", "Observables", "OrderedCollections"]
+git-tree-sha1 = "fcdae142c1cfc7d89de2d11e08721d0f2f86c98a"
+uuid = "cc8bc4a8-27d6-5769-a93b-9d913e69aa62"
+version = "0.6.6"
+
 [[deps.XML2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Zlib_jll"]
-git-tree-sha1 = "04a51d15436a572301b5abbb9d099713327e9fc4"
+git-tree-sha1 = "24b81b59bd35b3c42ab84fa589086e19be919916"
 uuid = "02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
-version = "2.10.4+0"
+version = "2.11.5+0"
 
 [[deps.XSLT_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libgcrypt_jll", "Libgpg_error_jll", "Libiconv_jll", "Pkg", "XML2_jll", "Zlib_jll"]
@@ -1432,12 +1693,18 @@ version = "1.4.1+1"
 """
 
 # ╔═╡ Cell order:
+# ╠═64153989-b00a-4f15-8f02-281d03174db1
 # ╠═ca8afe74-589e-11ee-1041-bb2fd694fe5f
+# ╠═03ffbcd1-dcb6-408a-aee8-c32e18e6384c
 # ╠═dbbb858c-11bc-45e6-863f-8e298ee572a7
+# ╠═53b85603-f141-4656-a19e-b465ae79f717
+# ╠═53b2c1a2-6534-4555-8911-c148fca41868
+# ╠═6f4545e5-c5fe-4967-a785-675e5b23a91f
 # ╠═7349357c-45c2-46fc-a726-f4ec6fbb75cc
 # ╠═55e1b9ed-1040-46cc-9fd8-7525ecffaeff
 # ╟─c4c586f7-292c-4f1b-89e4-a6b96210f6e2
-# ╠═72a92d91-d3f9-4043-b65e-15de03c2ddf3
+# ╟─72a92d91-d3f9-4043-b65e-15de03c2ddf3
+# ╠═71951987-4072-4a56-aa28-87857159bbf5
 # ╠═20d9bee9-b6bb-48b4-bc60-7899bff66d9d
 # ╠═ecfeb468-16ae-4ca1-8f7a-63933a7e83f1
 # ╠═9efebb7b-3c9c-4e1e-9225-ac9d60cee6c2
