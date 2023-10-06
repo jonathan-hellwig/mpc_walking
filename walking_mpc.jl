@@ -34,7 +34,7 @@ md"""
 # ╔═╡ 64153989-b00a-4f15-8f02-281d03174db1
 html"""<style>
 main {
-    max-width: 2000px;
+    max-width: 1000px;
 }
 """
 
@@ -69,7 +69,7 @@ begin
 	end
 	function sample_steps(arc::Arc, step_distance)
 		angle_dist = step_distance / arc.circle.radius
-		pos = angle -> arc.circle.center .+ arc.circle.radius .* [cos(angle), sin(angle)]
+		pos(angle) = arc.circle.center .+ arc.circle.radius .* [cos(angle), sin(angle)]
 		angle_dist = if arc.start > arc.stop
 			angle_dist * -1.0
 		else
