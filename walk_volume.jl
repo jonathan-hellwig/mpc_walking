@@ -1,3 +1,9 @@
+using MeshCat
+using CoordinateTransformations
+using Rotations
+using GeometryBasics: HyperRectangle, Vec, Point, Mesh, Cylinder
+using Colors: RGBA, RGB
+
 using StatsBase
 using VegaLite, DataFrames
 using Plots
@@ -57,7 +63,15 @@ function left_leg_forward_kinematics(angles::LegJoints, dimensions::RobotDimensi
     ankle_to_tibia = Translation(dimensions.knee_to_ankle) ∘ LinearMap(RotY(angles.ankle_pitch))
     foot_to_ankle = LinearMap(RotX(angles.ankle_roll))
     sole_to_foot = Translation(dimensions.ankle_to_sole)
-    return pelvis_to_robot ∘ hip_to_pelvis ∘ thigh_to_hip ∘ tibia_to_thigh ∘ ankle_to_tibia ∘ foot_to_ankle ∘ sole_to_foot
+
+    hip_to_robot = pelvis_to_robot ∘ hip_to_pelvis
+    thigh_to_robot = hip_to_robot ∘ thigh_to_hip
+    tibia_to_robot = thigh_to_robot ∘ tibia_to_thigh
+    ankle_to_robot = tibia_to_robot ∘ ankle_to_tibia
+    foot_to_robot = ankle_to_robot ∘ foot_to_ankle
+    sole_to_robot = foot_to_robot ∘ sole_to_foot
+
+    return sole_to_robot, foot_to_robot, ankle_to_robot, tibia_to_robot, thigh_to_robot, hip_to_robot, pelvis_to_robot
 end
 
 function interpolate_roll_limits(pitch_value, limits)
@@ -129,11 +143,15 @@ const roll_pitch_tolerance = 0.03
 const number_of_yaw_bins = 10
 const hip_height = -0.185
 
+const tube_radius = 0.01
+
+
 # Sample leg joints and compute forward kinematics
 accepted_samples = []
+accepted_joint_angles = []
 for i in 1:number_of_samples
     sampled_leg_joints = sample_leg_joints_uniform(left_leg_limits, leg_collision_limits)
-    left_foot_to_pelvis = left_leg_forward_kinematics(sampled_leg_joints, robot_dimensions)
+    left_foot_to_pelvis, _, _, _, _, _, _ = left_leg_forward_kinematics(sampled_leg_joints, robot_dimensions)
     left_foot_in_pelvis = left_foot_to_pelvis(SVector(0.0, 0.0, 0.0))
     roll, pitch, yaw = Rotations.params(RotXYZ(left_foot_to_pelvis.linear))
     
@@ -142,6 +160,7 @@ for i in 1:number_of_samples
         isapprox(roll, 0.0, atol=roll_pitch_tolerance) && 
         isapprox(pitch, 0.0, atol=roll_pitch_tolerance)
         push!(accepted_samples, (left_foot_in_pelvis[1:2], yaw))
+        push!(accepted_joint_angles, sampled_leg_joints)
     end
 end
 
@@ -159,4 +178,35 @@ plot1 = histogram(yaws, bins=10)
 df = DataFrame(x=x, y=y, z=rad2deg.(yaws), bin=yaws_bins)
 plot2 = df |> @vlplot(:point, x=:x, y=:y, color={:z, scale={scheme=:plasma}}, columns=3, wrap=:bin)
 
-# display(vcat(plot1, plot2))
+# 3D reandering of the left leg
+function setup_robot_visualizer!(visualizer, robot_dimensions, hip_height, tube_radius)
+    # Create cylinders for each link of the robot
+    robot_to_pelvis_tube = Cylinder(Point{3}([0.0, 0.0, 0.0]), Point{3}(robot_dimensions.robot_to_left_pelvis...), tube_radius)
+    hip_to_knee_tube = Cylinder(Point{3}([0.0, 0.0, 0.0]), Point{3}(robot_dimensions.hip_to_knee...), tube_radius)
+    knee_to_ankle_tube = Cylinder(Point{3}([0.0, 0.0, 0.0]), Point{3}(robot_dimensions.knee_to_ankle...), tube_radius)
+    ankle_to_foot_tip_tube = HyperRectangle(Vec{3}([0.0,0.0,0.0]), Vec{3}([0.1, 0.04, 0.04]))
+
+    # Add cylinders to the visualizer and set their initial transforms
+    setobject!(visualizer["robot"]["geom"]["robot_to_pelvis"], robot_to_pelvis_tube)
+    setobject!(visualizer["robot"]["geom"]["hip_to_knee"], hip_to_knee_tube)
+    setobject!(visualizer["robot"]["geom"]["knee_to_ankle"], knee_to_ankle_tube)
+    setobject!(visualizer["robot"]["geom"]["ankle_to_foot_tip"], ankle_to_foot_tip_tube)
+
+    update_robot_visualizer!(visualizer, robot_dimensions, hip_height, LegJoints(0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+end
+
+function update_robot_visualizer!(visualizer, robot_dimensions, hip_height, angles)
+    robot_to_world = Translation(0.0, 0.0, -hip_height + 0.1)
+    _, foot_to_robot, _, tibia_to_robot, thigh_to_robot, _, _ = left_leg_forward_kinematics(angles, robot_dimensions)
+    settransform!(visualizer["robot"]["geom"]["robot_to_pelvis"], robot_to_world)
+    settransform!(visualizer["robot"]["geom"]["hip_to_knee"], robot_to_world ∘ thigh_to_robot)
+    settransform!(visualizer["robot"]["geom"]["knee_to_ankle"], robot_to_world ∘ tibia_to_robot)
+    settransform!(visualizer["robot"]["geom"]["ankle_to_foot_tip"], robot_to_world ∘ foot_to_robot)
+end
+
+visualizer = Visualizer()
+for joint_angle in accepted_joint_angles
+    setup_robot_visualizer!(visualizer, robot_dimensions, hip_height, tube_radius)
+    update_robot_visualizer!(visualizer, robot_dimensions, hip_height, joint_angle)
+    sleep(1)
+end
