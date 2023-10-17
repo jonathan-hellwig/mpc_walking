@@ -19,7 +19,6 @@ begin
 	using JuMP
 	import Ipopt
 	using Plots
-	# using WGLMakie
 	using PlutoUI
 	using LinearAlgebra
 	import JSON
@@ -34,7 +33,7 @@ md"""
 # ╔═╡ 64153989-b00a-4f15-8f02-281d03174db1
 html"""<style>
 main {
-    max-width: 1000px;
+    max-width: 1200px;
 }
 """
 
@@ -67,6 +66,7 @@ begin
 			line.start .+ normalize(direction) * step_distance * steps
 		end
 	end
+	
 	function sample_steps(arc::Arc, step_distance)
 		angle_dist = step_distance / arc.circle.radius
 		pos(angle) = arc.circle.center .+ arc.circle.radius .* [cos(angle), sin(angle)]
@@ -147,6 +147,8 @@ let
 end
 
 # ╔═╡ 7349357c-45c2-46fc-a726-f4ec6fbb75cc
+# TODO: write docstring
+# TODO: do not use global variables -> pass everything by argument to the function
 function optimize_steps(
 	target_trajectory;
 	x₀,
@@ -363,6 +365,8 @@ end
 
 # ╔═╡ b241a26b-5e56-49b5-89a2-7921085378ac
 let
+	# (f / f_max)^2 + (s / s_max)^2 + (α / α_max)^2 = 1.0
+	# s = sqrt(1.0 - ((f / f_max)^2 + (α / α_max)^2)) * s_max
 	f_vol_s_linear = (f, α) -> begin
 		inner = f^2 + α^2
 		if inner < 1
@@ -1641,7 +1645,7 @@ version = "1.4.1+1"
 # ╠═1a5c6ad0-13cc-4847-a73d-1c121961ee6e
 # ╠═901876e1-b2f6-476c-a9a6-b4f65d76ff01
 # ╟─e0f168ac-9508-4576-92af-c73d337f79d9
-# ╟─0e53ad16-988f-47b2-afe3-6bfad2099a0e
-# ╟─b241a26b-5e56-49b5-89a2-7921085378ac
+# ╠═0e53ad16-988f-47b2-afe3-6bfad2099a0e
+# ╠═b241a26b-5e56-49b5-89a2-7921085378ac
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
